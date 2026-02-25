@@ -1,4 +1,4 @@
-import React, { useState, useEffect, useRef } from 'react';
+import { useState, useEffect, useRef } from 'react';
 import { Calculator, MessageSquare, Send, User, Users, Sparkles, ChevronDown, ChevronUp, ShieldPlus, Baby, Settings, ArrowRight } from 'lucide-react';
 
 // 定義單個人的資料結構
@@ -6,6 +6,18 @@ type PersonData = {
   name: string; income: number; mpf: number; vhis: number; tvc: number; rent: number;
   children: number; newborns: number; parents60: number; parents60LiveIn: number; parents55: number; parents55LiveIn: number; disabled: number;
 };
+
+// 定義最佳策略的資料結構
+type BestStrategy = {
+  mode: string;
+  p1Tax: number;
+  p2Tax: number;
+  p3Tax: number;
+  p4Tax: number;
+  total: number;
+  totalReduction: number;
+  note: string;
+} | null;
 
 const defaultPerson = (name: string): PersonData => ({
   name, income: 0, mpf: 0, vhis: 0, tvc: 0, rent: 0,
@@ -23,7 +35,7 @@ export default function App() {
     p4: defaultPerson('親屬 (P4)')
   });
 
-  const [apiBaseUrl] = useState('https://gptapi.sshworld.com/v1');
+  const [apiBaseUrl, setApiBaseUrl] = useState('https://gptapi.sshworld.com/v1');
   const [apiKey, setApiKey] = useState('');
   const [modelName, setModelName] = useState('p-gemini-3.1-pro-preview-vertex');
   const [showApiSettings, setShowApiSettings] = useState(true);
@@ -36,9 +48,8 @@ export default function App() {
   ]);
   const [inputMessage, setInputMessage] = useState('');
   const [isLoading, setIsLoading] = useState(false);
-  const [bestStrategy, setBestStrategy] = useState<any>(null);
+  const [bestStrategy, setBestStrategy] = useState<BestStrategy>(null);
   
-  const [isCalculatorExpanded, setIsCalculatorExpanded] = useState(true);
   const [expandedSection, setExpandedSection] = useState('income');
   const chatEndRef = useRef<HTMLDivElement>(null);
 
@@ -79,44 +90,38 @@ export default function App() {
     const othersTax = t3.finalTax + t4.finalTax;
     const othersReduction = t3.reduction + t4.reduction;
 
-    let best = null; 
+    let best: BestStrategy = null; 
     let minTotalTax = Infinity;
 
-    // 情況 A: P1 同 P2 分開評稅
-    const t1_sep = calculateHKTax(n1.income, n1.deductions, n1.allowances + 132000);
-    const t2_sep = calculateHKTax(n2.income, n2.deductions, n2.allowances + 132000);
-    const total_sep = t1_sep.finalTax + t2_sep.finalTax + othersTax;
-    
-    if (total_sep < minTotalTax) {
-      minTotalTax = total_sep;
-      best = { 
-        mode: data.relationship === 'married' ? '分開評稅' : '各自報稅', 
-        p1Tax: t1_sep.finalTax, p2Tax: t2_sep.finalTax, p3Tax: t3.finalTax, p4Tax: t4.finalTax,
-        total: minTotalTax, totalReduction: t1_sep.reduction + t2_sep.reduction + othersReduction,
-        note: '每人各自申報自己名下嘅免稅額'
-      };
-    }
-
-    // 情況 B: P1 同 P2 合併評稅 (只限夫妻)
-    if (data.relationship === 'married') {
-      const t_joint = calculateHKTax(
-        n1.income + n2.income, 
-        n1.deductions + n2.deductions, 
-        n1.allowances + n2.allowances + 264000 // 已婚基本免稅額
-      );
-      const total_joint = t_joint.finalTax + othersTax;
-
-      if (total_joint < minTotalTax) {
-        minTotalTax = total_joint;
+    const compare = (mode: string, t1: any, t2: any, note: string) => {
+      const total = t1.finalTax + t2.finalTax + othersTax;
+      if (total < minTotalTax) {
+        minTotalTax = total;
         best = { 
-          mode: '合併評稅 (P1+P2)', 
-          p1Tax: t_joint.finalTax, p2Tax: 0, p3Tax: t3.finalTax, p4Tax: t4.finalTax,
-          total: minTotalTax, totalReduction: t_joint.reduction + othersReduction,
-          note: 'P1 同 P2 合併評稅最慳稅'
+          mode, 
+          p1Tax: t1.finalTax, p2Tax: t2.finalTax, p3Tax: t3.finalTax, p4Tax: t4.finalTax, 
+          total, totalReduction: t1.reduction + t2.reduction + othersReduction, note 
         };
       }
-    }
+    };
 
+    if (data.relationship === 'married') {
+      compare('分開評稅', calculateHKTax(n1.income, n1.deductions, n1.allowances + 132000), calculateHKTax(n2.income, n2.deductions, n2.allowances), `${data.p1.name} 申索所有家庭免稅額`);
+      compare('分開評稅', calculateHKTax(n1.income, n1.deductions, n1.allowances), calculateHKTax(n2.income, n2.deductions, n2.allowances + 132000), `${data.p2.name} 申索所有家庭免稅額`);
+      
+      const joint = calculateHKTax(n1.income + n2.income, n1.deductions + n2.deductions, n1.allowances + n2.allowances + 264000);
+      if (joint.finalTax + othersTax < minTotalTax) {
+        minTotalTax = joint.finalTax + othersTax;
+        best = { 
+          mode: '合併評稅 (P1+P2)', 
+          p1Tax: joint.finalTax, p2Tax: 0, p3Tax: t3.finalTax, p4Tax: t4.finalTax, 
+          total: minTotalTax, totalReduction: joint.reduction + othersReduction, note: 'P1 同 P2 合併評稅最慳稅' 
+        };
+      }
+    } else {
+      compare('各自報稅', calculateHKTax(n1.income, n1.deductions, n1.allowances + 132000), calculateHKTax(n2.income, n2.deductions, n2.allowances), `${data.p1.name} 申索所有家庭免稅額`);
+      compare('各自報稅', calculateHKTax(n1.income, n1.deductions, n1.allowances), calculateHKTax(n2.income, n2.deductions, n2.allowances + 132000), `${data.p2.name} 申索所有家庭免稅額`);
+    }
     setBestStrategy(best);
   };
 
@@ -220,13 +225,12 @@ export default function App() {
   };
 
   // --- 4. 內置樣式 (CSS-in-JS) ---
-  // 修正 TypeScript 報錯：加入 as const 確保型別正確
   const s = {
     container: { fontFamily: '-apple-system, BlinkMacSystemFont, "Segoe UI", Roboto, Helvetica, Arial, sans-serif', backgroundColor: '#f2f2f7', height: '100dvh', display: 'flex', flexDirection: 'column' as const, overflow: 'hidden' },
-    topSection: { flex: isCalculatorExpanded ? 1.5 : 0, minHeight: isCalculatorExpanded ? '50%' : 'auto', display: 'flex', flexDirection: 'column' as const, transition: 'all 0.3s ease', backgroundColor: '#f2f2f7', borderBottom: '1px solid #d1d5db', overflow: 'hidden' },
+    topSection: { flex: 1.5, minHeight: '50%', display: 'flex', flexDirection: 'column' as const, transition: 'all 0.3s ease', backgroundColor: '#f2f2f7', borderBottom: '1px solid #d1d5db', overflow: 'hidden' },
     header: { backgroundColor: '#007AFF', color: 'white', padding: '16px', display: 'flex', justifyContent: 'space-between', alignItems: 'center', boxShadow: '0 2px 10px rgba(0,0,0,0.1)', zIndex: 10, flexShrink: 0 },
     headerTitle: { fontWeight: '600', fontSize: '18px', display: 'flex', alignItems: 'center', gap: '8px' },
-    scrollArea: { flex: 1, overflowY: 'auto' as const, padding: '16px', paddingBottom: '120px', display: isCalculatorExpanded ? 'flex' : 'none', flexDirection: 'column' as const, gap: '12px', WebkitOverflowScrolling: 'touch' as const },
+    scrollArea: { flex: 1, overflowY: 'auto' as const, padding: '16px', paddingBottom: '120px', display: 'flex', flexDirection: 'column' as const, gap: '12px', WebkitOverflowScrolling: 'touch' as const },
     bottomSection: { flex: 1, display: 'flex', flexDirection: 'column' as const, backgroundColor: '#f2f2f7', overflow: 'hidden', minHeight: 0 },
     chatScrollArea: { flex: 1, overflowY: 'auto' as const, padding: '16px', display: 'flex', flexDirection: 'column' as const, gap: '12px' },
     card: { backgroundColor: 'white', borderRadius: '16px', padding: '16px', boxShadow: '0 2px 8px rgba(0,0,0,0.05)', border: '1px solid rgba(0,0,0,0.05)' },
