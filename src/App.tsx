@@ -2,10 +2,19 @@
 import { useState, useEffect, useRef } from 'react';
 import { Calculator, MessageSquare, Send, User, Users, Sparkles, ChevronDown, ChevronUp, ShieldPlus, Baby, Settings, ArrowRight } from 'lucide-react';
 
-// --- 1. 型別定義 ---
+// --- 1. 型別定義 (擴充更多稅務項目) ---
 type PersonData = {
-  name: string; income: number; mpf: number; vhis: number; tvc: number; rent: number;
-  children: number; newborns: number; parents60: number; parents60LiveIn: number; parents55: number; parents55LiveIn: number; disabled: number;
+  name: string; 
+  income: number; 
+  // 扣稅項目
+  mpf: number; vhis: number; tvc: number; rent: number; 
+  selfEducation: number; donation: number; elderlyCare: number;
+  // 免稅額項目
+  children: number; newborns: number; 
+  parents60: number; parents60LiveIn: number; 
+  parents55: number; parents55LiveIn: number; 
+  dependentSiblings: number; disabledDependents: number;
+  disabledPersonal: boolean; singleParent: boolean;
 };
 
 type BestStrategy = {
@@ -14,26 +23,27 @@ type BestStrategy = {
 } | null;
 
 const defaultPerson = (name: string): PersonData => ({
-  name, income: 0, mpf: 0, vhis: 0, tvc: 0, rent: 0,
-  children: 0, newborns: 0, parents60: 0, parents60LiveIn: 0, parents55: 0, parents55LiveIn: 0, disabled: 0
+  name, income: 0, 
+  mpf: 0, vhis: 0, tvc: 0, rent: 0, selfEducation: 0, donation: 0, elderlyCare: 0,
+  children: 0, newborns: 0, parents60: 0, parents60LiveIn: 0, parents55: 0, parents55LiveIn: 0, 
+  dependentSiblings: 0, disabledDependents: 0,
+  disabledPersonal: false, singleParent: false
 });
 
-// --- 2. 獨立的 Input 元件 (解決彈 Keyboard 問題) ---
-// 將元件移出 App 外部，避免每次 Render 都重新建立
-const PersonInput = ({ pKey, label, field, value, onChange, maxText }: any) => {
+// --- 2. 獨立的 Input 元件 ---
+const PersonInput = ({ pKey, label, field, value, onChange, maxText, isBoolean = false }: any) => {
+  if (isBoolean) {
+    return (
+      <div style={{ marginBottom: '12px', display: 'flex', alignItems: 'center', gap: '8px' }}>
+        <input type="checkbox" checked={value} onChange={(e) => onChange(pKey, field, e.target.checked)} style={{ width: '16px', height: '16px' }} />
+        <label style={{ fontSize: '13px', color: '#374151' }}>{label}</label>
+      </div>
+    );
+  }
   return (
     <div style={{ marginBottom: '12px' }}>
       <label style={{ display: 'block', fontSize: '12px', fontWeight: '600', color: '#6b7280', marginBottom: '4px' }}>{label}</label>
-      <input 
-        type="number" 
-        value={value === 0 ? '' : value} 
-        placeholder="0" 
-        onChange={(e) => onChange(pKey, field, Number(e.target.value) || 0)} 
-        style={{ width: '100%', padding: '10px', borderRadius: '8px', border: '1px solid #d1d5db', fontSize: '14px', outline: 'none', transition: 'border-color 0.2s', backgroundColor: 'white', boxSizing: 'border-box' }} 
-        className="no-spinners" 
-        onFocus={(e) => e.target.style.borderColor = '#007AFF'} 
-        onBlur={(e) => e.target.style.borderColor = '#d1d5db'}
-      />
+      <input type="number" value={value === 0 ? '' : value} placeholder="0" onChange={(e) => onChange(pKey, field, Number(e.target.value) || 0)} style={{ width: '100%', padding: '10px', borderRadius: '8px', border: '1px solid #d1d5db', fontSize: '14px', outline: 'none', transition: 'border-color 0.2s', backgroundColor: 'white', boxSizing: 'border-box' }} className="no-spinners" onFocus={(e) => e.target.style.borderColor = '#007AFF'} onBlur={(e) => e.target.style.borderColor = '#d1d5db'} />
       {maxText && <div style={{ fontSize: '10px', color: '#9ca3af', marginTop: '2px' }}>{maxText}</div>}
     </div>
   );
@@ -68,13 +78,16 @@ export default function App() {
   const [expandedSection, setExpandedSection] = useState('income');
   const chatEndRef = useRef<HTMLDivElement>(null);
 
-  // --- 4. 稅務計算邏輯 ---
+  // --- 4. 稅務計算邏輯 (基於 pam61c.pdf) ---
   const calculateHKTax = (income: number, deductions: number, allowances: number) => {
     let netIncome = Math.max(0, income - deductions);
+    // 兩級制標準稅率 (2024/25 起)
     let standardTax = netIncome <= 5000000 ? netIncome * 0.15 : (5000000 * 0.15) + ((netIncome - 5000000) * 0.16);
+    
     let netChargeable = Math.max(0, netIncome - allowances);
     let progressiveTax = 0;
     let n = netChargeable;
+    // 累進稅率階梯
     if (n > 0) { let step = Math.min(n, 50000); progressiveTax += step * 0.02; n -= step; }
     if (n > 0) { let step = Math.min(n, 50000); progressiveTax += step * 0.06; n -= step; }
     if (n > 0) { let step = Math.min(n, 50000); progressiveTax += step * 0.10; n -= step; }
@@ -82,14 +95,31 @@ export default function App() {
     if (n > 0) { progressiveTax += n * 0.17; }
 
     let baseTax = Math.min(standardTax, progressiveTax);
-    let taxReduction = Math.min(baseTax, 3000);
+    let taxReduction = Math.min(baseTax, 3000); // 2025/26 寬減上限 $3,000
     return { finalTax: baseTax - taxReduction, baseTax, reduction: taxReduction };
   };
 
   const getPersonNet = (p: PersonData) => {
     const rentCap = formData.livingWithChild ? 120000 : 100000;
-    const deductions = Math.min(p.mpf, 18000) + Math.min(p.vhis, 8000) + Math.min(p.tvc, 60000) + Math.min(p.rent, rentCap);
-    const allowances = (p.children * 130000) + (p.newborns * 260000) + (p.parents60 * 50000) + (p.parents60LiveIn * 100000) + (p.parents55 * 25000) + (p.parents55LiveIn * 50000) + (p.disabled * 75000);
+    // 慈善捐款上限為應評稅入息 (扣除其他開支後) 的 35%
+    const otherDeductions = Math.min(p.mpf, 18000) + Math.min(p.vhis, 8000) + Math.min(p.tvc, 60000) + Math.min(p.rent, rentCap) + Math.min(p.selfEducation, 100000) + Math.min(p.elderlyCare, 100000);
+    const assessableIncome = Math.max(0, p.income - otherDeductions);
+    const donationCap = assessableIncome * 0.35;
+    const deductions = otherDeductions + Math.min(p.donation, donationCap);
+
+    // 免稅額計算 (基於 pam61c.pdf)
+    const allowances = 
+      (p.children * 130000) + 
+      (p.newborns * 260000) + // 初生嬰兒額外加 $130,000，即共 $260,000
+      (p.parents60 * 50000) + 
+      (p.parents60LiveIn * 100000) + 
+      (p.parents55 * 25000) + 
+      (p.parents55LiveIn * 50000) + 
+      (p.dependentSiblings * 37500) + // 供養兄弟姊妹
+      (p.disabledDependents * 75000) + // 傷殘受養人
+      (p.disabledPersonal ? 75000 : 0) + // 傷殘人士 (自己)
+      (p.singleParent ? 132000 : 0); // 單親
+      
     return { income: p.income, deductions, allowances };
   };
 
@@ -107,15 +137,26 @@ export default function App() {
     let best: BestStrategy = null; 
     let minTotalTax = Infinity;
 
-    const compare = (mode: string, t1: any, t2: any, note: string) => {
+    if (data.relationship === 'single') {
+      const t1 = calculateHKTax(n1.income, n1.deductions, n1.allowances + 132000);
+      const t2 = calculateHKTax(n2.income, n2.deductions, n2.allowances + 132000);
       const total = t1.finalTax + t2.finalTax + othersTax;
-      if (total < minTotalTax) {
-        minTotalTax = total;
-        best = { mode, p1Tax: t1.finalTax, p2Tax: t2.finalTax, p3Tax: t3.finalTax, p4Tax: t4.finalTax, total, totalReduction: t1.reduction + t2.reduction + othersReduction, note };
-      }
-    };
+      
+      best = { 
+        mode: '各自報稅', 
+        p1Tax: t1.finalTax, p2Tax: t2.finalTax, p3Tax: t3.finalTax, p4Tax: t4.finalTax, 
+        total, totalReduction: t1.reduction + t2.reduction + othersReduction, 
+        note: '根據當前分配，每人各自申報自己名下嘅免稅額' 
+      };
+    } else {
+      const compare = (mode: string, t1: any, t2: any, note: string) => {
+        const total = t1.finalTax + t2.finalTax + othersTax;
+        if (total < minTotalTax) {
+          minTotalTax = total;
+          best = { mode, p1Tax: t1.finalTax, p2Tax: t2.finalTax, p3Tax: t3.finalTax, p4Tax: t4.finalTax, total, totalReduction: t1.reduction + t2.reduction + othersReduction, note };
+        }
+      };
 
-    if (data.relationship === 'married') {
       compare('分開評稅', calculateHKTax(n1.income, n1.deductions, n1.allowances + 132000), calculateHKTax(n2.income, n2.deductions, n2.allowances), `${data.p1.name} 申索所有家庭免稅額`);
       compare('分開評稅', calculateHKTax(n1.income, n1.deductions, n1.allowances), calculateHKTax(n2.income, n2.deductions, n2.allowances + 132000), `${data.p2.name} 申索所有家庭免稅額`);
       
@@ -124,9 +165,6 @@ export default function App() {
         minTotalTax = joint.finalTax + othersTax;
         best = { mode: '合併評稅 (P1+P2)', p1Tax: joint.finalTax, p2Tax: 0, p3Tax: t3.finalTax, p4Tax: t4.finalTax, total: minTotalTax, totalReduction: joint.reduction + othersReduction, note: 'P1 同 P2 合併評稅最慳稅' };
       }
-    } else {
-      compare('各自報稅', calculateHKTax(n1.income, n1.deductions, n1.allowances + 132000), calculateHKTax(n2.income, n2.deductions, n2.allowances), `${data.p1.name} 申索所有家庭免稅額`);
-      compare('各自報稅', calculateHKTax(n1.income, n1.deductions, n1.allowances), calculateHKTax(n2.income, n2.deductions, n2.allowances + 132000), `${data.p2.name} 申索所有家庭免稅額`);
     }
     setBestStrategy(best);
   };
@@ -146,12 +184,37 @@ export default function App() {
 
     try {
       const systemPrompt = `
-        你是一個主動、專業的香港稅務 AI 顧問。
+        你是一個主動、專業的香港稅務 AI 顧問。請根據稅務局官方文件 (pam61c.pdf) 的規則進行計算及建議。
+        
         【當前計算器狀態 (JSON)】: ${JSON.stringify(formData)}
-        【你的行為準則與邏輯 (極重要)】:
+        
+        【稅務規則 (pam61c.pdf)】:
+        1. 累進稅率：首5萬(2%)、次5萬(6%)、次5萬(10%)、次5萬(14%)、餘額(17%)。
+        2. 標準稅率：首500萬(15%)、餘額(16%)。
+        3. 2025/26 寬減：100% 薪俸稅，上限 $3,000。
+        4. 免稅額：
+           - 基本：$132,000 / 已婚：$264,000
+           - 子女：$130,000 (初生嬰兒額外加 $130,000，即共 $260,000)
+           - 供養父母/祖父母(60歲+)：非同住 $50,000 / 同住 $100,000
+           - 供養父母/祖父母(55-59歲)：非同住 $25,000 / 同住 $50,000
+           - 供養兄弟姊妹：$37,500
+           - 傷殘受養人：$75,000
+           - 傷殘人士(自己)：$75,000
+           - 單親：$132,000
+        5. 扣除項目上限：
+           - MPF：$18,000
+           - 自願醫保 (VHIS)：$8,000
+           - 合資格年金/TVC：$60,000
+           - 住宅租金/居所貸款利息：$100,000 (與初生子女同住則為 $120,000)
+           - 個人進修開支：$100,000
+           - 長者住宿照顧開支：$100,000
+           - 認可慈善捐款：應評稅入息的 35%
+        
+        【行為準則】：
         1. **人物分配**: 系統支援 4 個人 (p1, p2, p3, p4)。如果用戶說「我同細佬」，請將用戶放 p1，細佬放 p2。如果用戶說「單身，有兄弟」，relationship 必須設為 "single"。如果用戶說「已婚」，relationship 設為 "married"。
         2. **入息處理**: 如果用戶說月薪 55k，請自動 x12 變成 660000 填入 income。
         3. **免稅額獨立分配 (互斥原則)**: 父母免稅額是跟人的。決定由 p2 報 1 個同住 60歲父母，則 p2.parents60LiveIn = 1，而 p1.parents60LiveIn = 0。絕對不能兩個人同時報同一個父母！
+        
         【極度重要】：你必須且只能返回一個純 JSON 格式的字串。絕對不要包含任何 Markdown 標記。
         JSON 格式: { "newState": { ... }, "reply": "你的廣東話回覆。" }
       `;
@@ -196,7 +259,7 @@ export default function App() {
   };
 
   // --- 6. 處理輸入及封頂邏輯 ---
-  const handlePersonChange = (personKey: string, field: string, value: number | string) => {
+  const handlePersonChange = (personKey: string, field: string, value: number | string | boolean) => {
     setFormData(prev => {
       const person = prev[personKey as keyof typeof prev] as PersonData;
       let finalValue = value;
@@ -205,6 +268,8 @@ export default function App() {
       if (typeof value === 'number') {
         if (field === 'vhis') finalValue = Math.min(value, 8000);
         if (field === 'tvc') finalValue = Math.min(value, 60000);
+        if (field === 'selfEducation') finalValue = Math.min(value, 100000);
+        if (field === 'elderlyCare') finalValue = Math.min(value, 100000);
         if (field === 'rent') {
           const rentCap = prev.livingWithChild ? 120000 : 100000;
           finalValue = Math.min(value, rentCap);
@@ -304,7 +369,7 @@ export default function App() {
               {expandedSection === 'income' && (
                 <div style={{ padding: '16px' }}>
                   <div style={{ marginBottom: '12px' }}>
-                    <label style={s.label}><Users size={14} style={{display:'inline', marginRight:4}}/> P1 與 P2 關係 (P3, P4 預設為獨立親屬)</label>
+                    <label style={{ display: 'block', fontSize: '12px', fontWeight: '600', color: '#6b7280', marginBottom: '4px' }}><Users size={14} style={{display:'inline', marginRight:4}}/> P1 與 P2 關係 (P3, P4 預設為獨立親屬)</label>
                     <select value={formData.relationship} onChange={(e) => setFormData({...formData, relationship: e.target.value})} style={{ width: '100%', padding: '10px', borderRadius: '8px', border: '1px solid #d1d5db', fontSize: '14px', outline: 'none', backgroundColor: 'white' }}>
                       <option value="single">單身 / 兄弟姊妹 (各自獨立)</option>
                       <option value="married">夫妻 (可合併評稅)</option>
@@ -341,7 +406,10 @@ export default function App() {
                         <div style={{ fontWeight: 'bold', fontSize: '14px', marginBottom: '8px', color: '#374151' }}>{(formData as any)[pKey].name}</div>
                         <PersonInput pKey={pKey} label="自願醫保" field="vhis" value={(formData as any)[pKey].vhis} onChange={handlePersonChange} maxText="上限 $8,000" />
                         <PersonInput pKey={pKey} label="年金/TVC" field="tvc" value={(formData as any)[pKey].tvc} onChange={handlePersonChange} maxText="上限 $60,000" />
-                        <PersonInput pKey={pKey} label="租金/利息" field="rent" value={(formData as any)[pKey].rent} onChange={handlePersonChange} maxText={formData.livingWithChild ? "上限 $120,000" : "上限 $100,000"} />
+                        <PersonInput pKey={pKey} label="住宅租金/居所貸款利息" field="rent" value={(formData as any)[pKey].rent} onChange={handlePersonChange} maxText={formData.livingWithChild ? "上限 $120,000" : "上限 $100,000"} />
+                        <PersonInput pKey={pKey} label="個人進修開支" field="selfEducation" value={(formData as any)[pKey].selfEducation} onChange={handlePersonChange} maxText="上限 $100,000" />
+                        <PersonInput pKey={pKey} label="認可慈善捐款" field="donation" value={(formData as any)[pKey].donation} onChange={handlePersonChange} maxText="上限為應評稅入息 35%" />
+                        <PersonInput pKey={pKey} label="長者住宿照顧開支" field="elderlyCare" value={(formData as any)[pKey].elderlyCare} onChange={handlePersonChange} maxText="上限 $100,000" />
                       </div>
                     ))}
                   </div>
@@ -365,6 +433,10 @@ export default function App() {
                         <PersonInput pKey={pKey} label="60歲+父母(同住)" field="parents60LiveIn" value={(formData as any)[pKey].parents60LiveIn} onChange={handlePersonChange} />
                         <PersonInput pKey={pKey} label="55歲+父母(非同住)" field="parents55" value={(formData as any)[pKey].parents55} onChange={handlePersonChange} />
                         <PersonInput pKey={pKey} label="55歲+父母(同住)" field="parents55LiveIn" value={(formData as any)[pKey].parents55LiveIn} onChange={handlePersonChange} />
+                        <PersonInput pKey={pKey} label="供養兄弟姊妹數目" field="dependentSiblings" value={(formData as any)[pKey].dependentSiblings} onChange={handlePersonChange} />
+                        <PersonInput pKey={pKey} label="傷殘受養人數目" field="disabledDependents" value={(formData as any)[pKey].disabledDependents} onChange={handlePersonChange} />
+                        <PersonInput pKey={pKey} label="傷殘人士免稅額 (自己)" field="disabledPersonal" value={(formData as any)[pKey].disabledPersonal} onChange={handlePersonChange} isBoolean={true} />
+                        <PersonInput pKey={pKey} label="單親免稅額" field="singleParent" value={(formData as any)[pKey].singleParent} onChange={handlePersonChange} isBoolean={true} />
                       </div>
                     ))}
                   </div>
