@@ -481,7 +481,7 @@ export default function App() {
 
           <div style={s.inputBar}>
             <MessageSquare size={20} color="#9ca3af" />
-            <input type="text" placeholder="同 AI 講你想點計..." value={inputMessage} onChange={(e) => setInputMessage(e.target.value)} onKeyPress={(e) => e.key === 'Enter' && handleSendMessage()} style={{ flex: 1, border: 'none', outline: 'none', fontSize: '15px' }} />
+            <input type="text" placeholder="同 AI 講你想點計!" value={inputMessage} onChange={(e) => setInputMessage(e.target.value)} onKeyPress={(e) => e.key === 'Enter' && handleSendMessage()} style={{ flex: 1, border: 'none', outline: 'none', fontSize: '15px' }} />
             <button onClick={handleSendMessage} disabled={isLoading || !inputMessage.trim()} style={{ ...s.sendBtn, opacity: (!inputMessage.trim() || isLoading) ? 0.5 : 1 }}>
               <Send size={18} />
             </button>
