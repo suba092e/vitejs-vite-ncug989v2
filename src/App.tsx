@@ -73,6 +73,7 @@ export default function App() {
   const [isLoading, setIsLoading] = useState(false);
   const [bestStrategy, setBestStrategy] = useState<BestStrategy>(null);
   
+  const [isCalculatorExpanded, setIsCalculatorExpanded] = useState(true);
   const [expandedSection, setExpandedSection] = useState('income');
   const chatEndRef = useRef<HTMLDivElement>(null);
 
@@ -272,12 +273,19 @@ export default function App() {
   // --- 7. 內置樣式 ---
   const s = {
     container: { fontFamily: '-apple-system, BlinkMacSystemFont, "Segoe UI", Roboto, Helvetica, Arial, sans-serif', backgroundColor: '#f2f2f7', height: '100dvh', display: 'flex', flexDirection: 'column' as const, overflow: 'hidden' },
-    topSection: { flex: 1.5, minHeight: '50%', display: 'flex', flexDirection: 'column' as const, transition: 'all 0.3s ease', backgroundColor: '#f2f2f7', borderBottom: '1px solid #d1d5db', overflow: 'hidden' },
-    header: { backgroundColor: '#007AFF', color: 'white', padding: '16px', display: 'flex', justifyContent: 'space-between', alignItems: 'center', boxShadow: '0 2px 10px rgba(0,0,0,0.1)', zIndex: 10, flexShrink: 0 },
+    
+    // 確保 topSection 展開時佔 60%，收起時只佔 Header 高度
+    topSection: { flex: isCalculatorExpanded ? 1.5 : 0, minHeight: isCalculatorExpanded ? '50%' : 'auto', display: 'flex', flexDirection: 'column' as const, transition: 'all 0.3s ease', backgroundColor: '#f2f2f7', borderBottom: '1px solid #d1d5db', zIndex: 1 },
+    header: { backgroundColor: '#007AFF', color: 'white', padding: '16px', display: 'flex', justifyContent: 'space-between', alignItems: 'center', boxShadow: '0 2px 10px rgba(0,0,0,0.1)', zIndex: 10, flexShrink: 0, cursor: 'pointer' },
     headerTitle: { fontWeight: '600', fontSize: '18px', display: 'flex', alignItems: 'center', gap: '8px' },
-    scrollArea: { flex: 1, overflowY: 'auto' as const, padding: '16px', paddingBottom: '40px', display: 'flex', flexDirection: 'column' as const, gap: '12px', WebkitOverflowScrolling: 'touch' as const },
-    bottomSection: { flex: 1, display: 'flex', flexDirection: 'column' as const, backgroundColor: '#f2f2f7', zIndex: 2, borderTop: '1px solid #d1d5db', boxShadow: '0 -2px 10px rgba(0,0,0,0.05)', position: 'relative' as const },
-    chatScrollArea: { flex: 1, overflowY: 'auto' as const, padding: '16px', display: 'flex', flexDirection: 'column' as const, gap: '12px' },
+    scrollArea: { flex: 1, overflowY: 'auto' as const, padding: '16px', paddingBottom: '40px', display: isCalculatorExpanded ? 'flex' : 'none', flexDirection: 'column' as const, gap: '12px', WebkitOverflowScrolling: 'touch' as const },
+    
+    // 確保 bottomSection 嚴格遵守 flex: 1，唔會被內容撐大
+    bottomSection: { flex: 1, display: 'flex', flexDirection: 'column' as const, backgroundColor: '#f2f2f7', zIndex: 2, borderTop: '1px solid #d1d5db', boxShadow: '0 -2px 10px rgba(0,0,0,0.05)', position: 'relative' as const, minHeight: 0 },
+    
+    // 確保 chatScrollArea 喺 bottomSection 內部捲動
+    chatScrollArea: { flex: 1, overflowY: 'auto' as const, padding: '16px', display: 'flex', flexDirection: 'column' as const, gap: '12px', minHeight: 0 },
+    
     card: { backgroundColor: 'white', borderRadius: '16px', padding: '16px', boxShadow: '0 2px 8px rgba(0,0,0,0.05)', border: '1px solid rgba(0,0,0,0.05)' },
     bestCard: { backgroundColor: '#ecfdf5', border: '1px solid #10b981', borderRadius: '16px', padding: '16px', boxShadow: '0 4px 12px rgba(16, 185, 129, 0.1)' },
     sectionBtn: (active: boolean, color: string) => ({ width: '100%', padding: '12px', display: 'flex', justifyContent: 'space-between', alignItems: 'center', backgroundColor: active ? 'white' : '#f9fafb', border: 'none', borderBottom: '1px solid #eee', color: color, fontWeight: '600', cursor: 'pointer', outline: 'none' }),
@@ -291,7 +299,7 @@ export default function App() {
     horizontalScroll: { display: 'flex', overflowX: 'auto' as const, gap: '16px', paddingBottom: '8px', WebkitOverflowScrolling: 'touch' as const },
     personColumn: { minWidth: '220px', flexShrink: 0, borderRight: '1px solid #f3f4f6', paddingRight: '16px' },
     
-    // 新增：API 面板向上彈出樣式
+    // API 面板向上彈出樣式
     apiPanel: {
       position: 'absolute' as const,
       bottom: '100%', // 貼住 inputBar 頂部
@@ -330,8 +338,9 @@ export default function App() {
       <div style={s.container}>
         {/* Top Half: Calculator */}
         <div style={s.topSection}>
-          <div style={s.header}>
+          <div style={s.header} onClick={() => setIsCalculatorExpanded(!isCalculatorExpanded)}>
             <div style={s.headerTitle}><Calculator size={20} /> 香港稅務最佳化計算器</div>
+            {isCalculatorExpanded ? <ChevronUp size={20} /> : <ChevronDown size={20} />}
           </div>
 
           <div style={s.scrollArea}>
