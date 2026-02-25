@@ -7,7 +7,7 @@ type PersonData = {
   name: string; 
   income: number; 
   // 扣稅項目
-  mpf: number; vhis: number; vhisParents: number; tvc: number; qdap: number; rent: number; 
+  mpf: number; vhis: number; vhisParents: number; tvc: number; rent: number; 
   selfEducation: number; donation: number; elderlyCare: number; ivfExpenses: number;
   // 免稅額項目
   children: number; newborns: number; 
@@ -24,7 +24,7 @@ type BestStrategy = {
 
 const defaultPerson = (name: string): PersonData => ({
   name, income: 0, 
-  mpf: 0, vhis: 0, vhisParents: 0, tvc: 0, qdap: 0, rent: 0, selfEducation: 0, donation: 0, elderlyCare: 0, ivfExpenses: 0,
+  mpf: 0, vhis: 0, vhisParents: 0, tvc: 0, rent: 0, selfEducation: 0, donation: 0, elderlyCare: 0, ivfExpenses: 0,
   children: 0, newborns: 0, parents60: 0, parents60LiveIn: 0, parents55: 0, parents55LiveIn: 0, 
   dependentSiblings: 0, disabledDependents: 0,
   disabledPersonal: false, singleParent: false
@@ -101,15 +101,12 @@ export default function App() {
     // 租金/房貸利息上限：基本 10萬，與初生子女同住加 2萬 = 12萬
     const rentCap = formData.livingWithChild ? 120000 : 100000;
     
-    // TVC 與 QDAP 共用 6萬上限
-    const tvcAndQdapDeduction = Math.min(p.tvc + p.qdap, 60000);
-    
     // 慈善捐款上限為應評稅入息 (扣除其他開支後) 的 35%
     const otherDeductions = 
       Math.min(p.mpf, 18000) + 
       Math.min(p.vhis, 8000) + 
       Math.min(p.vhisParents, 16000) + // 父母 VHIS，上限 2 人 x $8,000
-      tvcAndQdapDeduction + 
+      Math.min(p.tvc, 60000) + 
       Math.min(p.rent, rentCap) + 
       Math.min(p.selfEducation, 100000) + 
       Math.min(p.elderlyCare, 100000) +
@@ -127,7 +124,7 @@ export default function App() {
       (p.parents60LiveIn * 100000) + 
       (p.parents55 * 25000) + 
       (p.parents55LiveIn * 50000) + 
-      (p.dependentSiblings * 37500) + // 供養兄弟姊妹
+      (p.dependentSiblings * 37500) + 
       (p.disabledDependents * 75000) + 
       (p.disabledPersonal ? 75000 : 0) + 
       (p.singleParent ? 132000 : 0); 
@@ -217,7 +214,7 @@ export default function App() {
            - MPF：$18,000
            - 自願醫保 (VHIS) - 自己：$8,000
            - 自願醫保 (VHIS) - 父母：每名受保人 $8,000 (系統設定上限為 2 人，即 $16,000)
-           - 合資格年金(QDAP) 及 可扣稅強積金(TVC)：共用上限 $60,000
+           - 合資格年金/TVC：$60,000
            - 住宅租金/居所貸款利息：基本 $100,000 (若與初生子女同住則提升至 $120,000)
            - 個人進修開支：$100,000
            - 長者住宿照顧開支：$100,000
@@ -282,7 +279,7 @@ export default function App() {
       if (typeof value === 'number') {
         if (field === 'vhis') finalValue = Math.min(value, 8000);
         if (field === 'vhisParents') finalValue = Math.min(value, 16000); // 父母 VHIS 上限 2 人
-        // TVC 同 QDAP 嘅 UI 唔強制封頂，因為佢哋係共用 6萬上限，會喺 getPersonNet 度處理
+        if (field === 'tvc') finalValue = Math.min(value, 60000);
         if (field === 'selfEducation') finalValue = Math.min(value, 100000);
         if (field === 'elderlyCare') finalValue = Math.min(value, 100000);
         if (field === 'ivfExpenses') finalValue = Math.min(value, 100000);
@@ -422,8 +419,7 @@ export default function App() {
                         <div style={{ fontWeight: 'bold', fontSize: '14px', marginBottom: '8px', color: '#374151' }}>{(formData as any)[pKey].name}</div>
                         <PersonInput pKey={pKey} label="自願醫保 (自己)" field="vhis" value={(formData as any)[pKey].vhis} onChange={handlePersonChange} maxText="上限 $8,000" />
                         <PersonInput pKey={pKey} label="自願醫保 (父母)" field="vhisParents" value={(formData as any)[pKey].vhisParents} onChange={handlePersonChange} maxText="上限 2 人共 $16,000" />
-                        <PersonInput pKey={pKey} label="可扣稅強積金 (TVC)" field="tvc" value={(formData as any)[pKey].tvc} onChange={handlePersonChange} />
-                        <PersonInput pKey={pKey} label="合資格年金 (QDAP)" field="qdap" value={(formData as any)[pKey].qdap} onChange={handlePersonChange} maxText="TVC 及 QDAP 共用上限 $60,000" />
+                        <PersonInput pKey={pKey} label="年金/TVC" field="tvc" value={(formData as any)[pKey].tvc} onChange={handlePersonChange} maxText="上限 $60,000" />
                         <PersonInput pKey={pKey} label="住宅租金/居所貸款利息" field="rent" value={(formData as any)[pKey].rent} onChange={handlePersonChange} maxText={formData.livingWithChild ? "上限 $120,000" : "上限 $100,000"} />
                         <PersonInput pKey={pKey} label="個人進修開支" field="selfEducation" value={(formData as any)[pKey].selfEducation} onChange={handlePersonChange} maxText="上限 $100,000" />
                         <PersonInput pKey={pKey} label="認可慈善捐款" field="donation" value={(formData as any)[pKey].donation} onChange={handlePersonChange} maxText="上限為應評稅入息 35%" />
