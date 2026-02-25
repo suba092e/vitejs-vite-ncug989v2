@@ -7,8 +7,8 @@ type PersonData = {
   name: string; 
   income: number; 
   // 扣稅項目
-  mpf: number; vhis: number; tvc: number; rent: number; 
-  selfEducation: number; donation: number; elderlyCare: number;
+  mpf: number; vhis: number; vhisParents: number; tvc: number; qdap: number; rent: number; 
+  selfEducation: number; donation: number; elderlyCare: number; ivfExpenses: number;
   // 免稅額項目
   children: number; newborns: number; 
   parents60: number; parents60LiveIn: number; 
@@ -24,7 +24,7 @@ type BestStrategy = {
 
 const defaultPerson = (name: string): PersonData => ({
   name, income: 0, 
-  mpf: 0, vhis: 0, tvc: 0, rent: 0, selfEducation: 0, donation: 0, elderlyCare: 0,
+  mpf: 0, vhis: 0, vhisParents: 0, tvc: 0, qdap: 0, rent: 0, selfEducation: 0, donation: 0, elderlyCare: 0, ivfExpenses: 0,
   children: 0, newborns: 0, parents60: 0, parents60LiveIn: 0, parents55: 0, parents55LiveIn: 0, 
   dependentSiblings: 0, disabledDependents: 0,
   disabledPersonal: false, singleParent: false
@@ -81,13 +81,11 @@ export default function App() {
   // --- 4. 稅務計算邏輯 (基於 pam61c.pdf) ---
   const calculateHKTax = (income: number, deductions: number, allowances: number) => {
     let netIncome = Math.max(0, income - deductions);
-    // 兩級制標準稅率 (2024/25 起)
     let standardTax = netIncome <= 5000000 ? netIncome * 0.15 : (5000000 * 0.15) + ((netIncome - 5000000) * 0.16);
     
     let netChargeable = Math.max(0, netIncome - allowances);
     let progressiveTax = 0;
     let n = netChargeable;
-    // 累進稅率階梯
     if (n > 0) { let step = Math.min(n, 50000); progressiveTax += step * 0.02; n -= step; }
     if (n > 0) { let step = Math.min(n, 50000); progressiveTax += step * 0.06; n -= step; }
     if (n > 0) { let step = Math.min(n, 50000); progressiveTax += step * 0.10; n -= step; }
@@ -100,25 +98,39 @@ export default function App() {
   };
 
   const getPersonNet = (p: PersonData) => {
+    // 租金/房貸利息上限：基本 10萬，與初生子女同住加 2萬 = 12萬
     const rentCap = formData.livingWithChild ? 120000 : 100000;
+    
+    // TVC 與 QDAP 共用 6萬上限
+    const tvcAndQdapDeduction = Math.min(p.tvc + p.qdap, 60000);
+    
     // 慈善捐款上限為應評稅入息 (扣除其他開支後) 的 35%
-    const otherDeductions = Math.min(p.mpf, 18000) + Math.min(p.vhis, 8000) + Math.min(p.tvc, 60000) + Math.min(p.rent, rentCap) + Math.min(p.selfEducation, 100000) + Math.min(p.elderlyCare, 100000);
+    const otherDeductions = 
+      Math.min(p.mpf, 18000) + 
+      Math.min(p.vhis, 8000) + 
+      Math.min(p.vhisParents, 16000) + // 父母 VHIS，上限 2 人 x $8,000
+      tvcAndQdapDeduction + 
+      Math.min(p.rent, rentCap) + 
+      Math.min(p.selfEducation, 100000) + 
+      Math.min(p.elderlyCare, 100000) +
+      Math.min(p.ivfExpenses, 100000); // 輔助生育服務支出上限 10萬
+
     const assessableIncome = Math.max(0, p.income - otherDeductions);
     const donationCap = assessableIncome * 0.35;
     const deductions = otherDeductions + Math.min(p.donation, donationCap);
 
-    // 免稅額計算 (基於 pam61c.pdf)
+    // 免稅額計算
     const allowances = 
       (p.children * 130000) + 
-      (p.newborns * 260000) + // 初生嬰兒額外加 $130,000，即共 $260,000
+      (p.newborns * 260000) + 
       (p.parents60 * 50000) + 
       (p.parents60LiveIn * 100000) + 
       (p.parents55 * 25000) + 
       (p.parents55LiveIn * 50000) + 
       (p.dependentSiblings * 37500) + // 供養兄弟姊妹
-      (p.disabledDependents * 75000) + // 傷殘受養人
-      (p.disabledPersonal ? 75000 : 0) + // 傷殘人士 (自己)
-      (p.singleParent ? 132000 : 0); // 單親
+      (p.disabledDependents * 75000) + 
+      (p.disabledPersonal ? 75000 : 0) + 
+      (p.singleParent ? 132000 : 0); 
       
     return { income: p.income, deductions, allowances };
   };
@@ -203,11 +215,13 @@ export default function App() {
            - 單親：$132,000
         5. 扣除項目上限：
            - MPF：$18,000
-           - 自願醫保 (VHIS)：$8,000
-           - 合資格年金/TVC：$60,000
-           - 住宅租金/居所貸款利息：$100,000 (與初生子女同住則為 $120,000)
+           - 自願醫保 (VHIS) - 自己：$8,000
+           - 自願醫保 (VHIS) - 父母：每名受保人 $8,000 (系統設定上限為 2 人，即 $16,000)
+           - 合資格年金(QDAP) 及 可扣稅強積金(TVC)：共用上限 $60,000
+           - 住宅租金/居所貸款利息：基本 $100,000 (若與初生子女同住則提升至 $120,000)
            - 個人進修開支：$100,000
            - 長者住宿照顧開支：$100,000
+           - 輔助生育服務支出：$100,000
            - 認可慈善捐款：應評稅入息的 35%
         
         【行為準則】：
@@ -267,9 +281,11 @@ export default function App() {
       // 數值封頂邏輯 (UI 限制)
       if (typeof value === 'number') {
         if (field === 'vhis') finalValue = Math.min(value, 8000);
-        if (field === 'tvc') finalValue = Math.min(value, 60000);
+        if (field === 'vhisParents') finalValue = Math.min(value, 16000); // 父母 VHIS 上限 2 人
+        // TVC 同 QDAP 嘅 UI 唔強制封頂，因為佢哋係共用 6萬上限，會喺 getPersonNet 度處理
         if (field === 'selfEducation') finalValue = Math.min(value, 100000);
         if (field === 'elderlyCare') finalValue = Math.min(value, 100000);
+        if (field === 'ivfExpenses') finalValue = Math.min(value, 100000);
         if (field === 'rent') {
           const rentCap = prev.livingWithChild ? 120000 : 100000;
           finalValue = Math.min(value, rentCap);
@@ -397,19 +413,22 @@ export default function App() {
               {expandedSection === 'deductions' && (
                 <div style={{ padding: '16px' }}>
                   <label style={{ display: 'flex', alignItems: 'center', gap: '8px', fontSize: '13px', marginBottom: '12px', padding: '8px', backgroundColor: '#f3f4f6', borderRadius: '8px' }}>
-                    <input type="checkbox" checked={formData.livingWithChild} onChange={(e) => setFormData({...formData, livingWithChild: e.target.checked})} /> 與子女同住 (租金扣除上限 12萬)
+                    <input type="checkbox" checked={formData.livingWithChild} onChange={(e) => setFormData({...formData, livingWithChild: e.target.checked})} /> 與初生子女同住 (租金/房貸上限提升至 12萬)
                   </label>
                   <div style={{ fontSize: '11px', color: '#6b7280', marginBottom: '8px', display: 'flex', alignItems: 'center', gap: '4px' }}><ArrowRight size={12}/> 向左滑動查看 P3, P4</div>
                   <div style={s.horizontalScroll}>
                     {persons.map(pKey => (
                       <div key={pKey} style={s.personColumn}>
                         <div style={{ fontWeight: 'bold', fontSize: '14px', marginBottom: '8px', color: '#374151' }}>{(formData as any)[pKey].name}</div>
-                        <PersonInput pKey={pKey} label="自願醫保" field="vhis" value={(formData as any)[pKey].vhis} onChange={handlePersonChange} maxText="上限 $8,000" />
-                        <PersonInput pKey={pKey} label="年金/TVC" field="tvc" value={(formData as any)[pKey].tvc} onChange={handlePersonChange} maxText="上限 $60,000" />
+                        <PersonInput pKey={pKey} label="自願醫保 (自己)" field="vhis" value={(formData as any)[pKey].vhis} onChange={handlePersonChange} maxText="上限 $8,000" />
+                        <PersonInput pKey={pKey} label="自願醫保 (父母)" field="vhisParents" value={(formData as any)[pKey].vhisParents} onChange={handlePersonChange} maxText="上限 2 人共 $16,000" />
+                        <PersonInput pKey={pKey} label="可扣稅強積金 (TVC)" field="tvc" value={(formData as any)[pKey].tvc} onChange={handlePersonChange} />
+                        <PersonInput pKey={pKey} label="合資格年金 (QDAP)" field="qdap" value={(formData as any)[pKey].qdap} onChange={handlePersonChange} maxText="TVC 及 QDAP 共用上限 $60,000" />
                         <PersonInput pKey={pKey} label="住宅租金/居所貸款利息" field="rent" value={(formData as any)[pKey].rent} onChange={handlePersonChange} maxText={formData.livingWithChild ? "上限 $120,000" : "上限 $100,000"} />
                         <PersonInput pKey={pKey} label="個人進修開支" field="selfEducation" value={(formData as any)[pKey].selfEducation} onChange={handlePersonChange} maxText="上限 $100,000" />
                         <PersonInput pKey={pKey} label="認可慈善捐款" field="donation" value={(formData as any)[pKey].donation} onChange={handlePersonChange} maxText="上限為應評稅入息 35%" />
                         <PersonInput pKey={pKey} label="長者住宿照顧開支" field="elderlyCare" value={(formData as any)[pKey].elderlyCare} onChange={handlePersonChange} maxText="上限 $100,000" />
+                        <PersonInput pKey={pKey} label="輔助生育服務支出" field="ivfExpenses" value={(formData as any)[pKey].ivfExpenses} onChange={handlePersonChange} maxText="上限 $100,000" />
                       </div>
                     ))}
                   </div>
@@ -481,7 +500,7 @@ export default function App() {
 
           <div style={s.inputBar}>
             <MessageSquare size={20} color="#9ca3af" />
-            <input type="text" placeholder="同 AI 講你想點計!" value={inputMessage} onChange={(e) => setInputMessage(e.target.value)} onKeyPress={(e) => e.key === 'Enter' && handleSendMessage()} style={{ flex: 1, border: 'none', outline: 'none', fontSize: '15px' }} />
+            <input type="text" placeholder="同 AI 講你想點計..." value={inputMessage} onChange={(e) => setInputMessage(e.target.value)} onKeyPress={(e) => e.key === 'Enter' && handleSendMessage()} style={{ flex: 1, border: 'none', outline: 'none', fontSize: '15px' }} />
             <button onClick={handleSendMessage} disabled={isLoading || !inputMessage.trim()} style={{ ...s.sendBtn, opacity: (!inputMessage.trim() || isLoading) ? 0.5 : 1 }}>
               <Send size={18} />
             </button>
